@@ -1,0 +1,335 @@
+*************
+*Kiran Raju** 
+*Work Sample* 
+*VBA Code****
+*************
+
+Option Explicit
+'***Data Export Formatting Constants (Do not change these unless the format of your data export changes)***'
+Const RowDate = 7
+Const RowReportTitle = 6
+Const ColFirstData = 3
+Const RowFirstData = 9
+'***Report Generating Constants (Change these to adjust the way the report sheet is formatted)***'
+Const RowReportStart = 5 'Minimum 5
+Const ColReportStart = 2 'Minimum 2
+Const OffsetReport = 10 'Minimum 10
+
+Sub ListWorkbooks()
+Dim wkbnames As String, wksnames As String
+Dim i As Integer, j As Integer
+
+    If ThisWorkbook.Worksheets("Setup").Buttons("cmdResetSheetList").Enabled = True Then
+        For j = 1 To Workbooks.Count
+            If Workbooks(j).Name <> ThisWorkbook.Name Then
+                wkbnames = wkbnames & Workbooks(j).Name & ","
+                For i = 1 To Workbooks(j).Sheets.Count
+                    If InStr(1, Workbooks(j).Sheets(i).Name, "Daily Summary (TOD)") Then _
+                        wksnames = wksnames & Workbooks(j).Name & "/" & Workbooks(j).Sheets(i).Name & ","
+                Next i
+            End If
+        Next j
+        
+        If wksnames <> "" Then
+            ThisWorkbook.Worksheets("Setup").Range("ImportSheet").ClearContents
+            With ThisWorkbook.Worksheets("Setup").Range("ImportSheet").Validation
+                .Delete
+                .Add Type:=xlValidateList, AlertStyle:=xlValidAlertStop, Operator:= _
+                    xlBetween, Formula1:=wksnames
+                .IgnoreBlank = True
+                .InCellDropdown = True
+                .ErrorMessage = "Please select a worksheet from this dropdown."
+                .ErrorTitle = "Error: Invalid Worksheet "
+            End With
+            
+            Call ButtonEnable("cmdResetSheetList", "Setup", False)
+            Call ButtonEnable("cmdImportSheets", "Setup", True)
+        End If
+        
+        ThisWorkbook.Worksheets("Setup").Range("FirstReport") = ""
+        ThisWorkbook.Worksheets("Setup").Range("FirstDate") = ""
+        ThisWorkbook.Worksheets("Setup").Range("FirstDataPoint") = ""
+    Else
+        'do nothing
+    End If
+End Sub
+
+Sub ImportSheet()
+Dim wkbName As String, wksName As String, wksNewName As String, StringSearch As String
+Dim wks As Worksheet
+
+    If ThisWorkbook.Worksheets("Setup").Buttons("cmdImportSheets").Enabled = True Then
+        On Error GoTo ErrorHandler
+        
+            StringSearch = ThisWorkbook.Worksheets("Setup").Range("ImportSheet")
+            
+            If StringSearch <> "" Then
+                wkbName = Left(StringSearch, InStr(1, StringSearch, "/") - 1)
+                wksName = Right(StringSearch, InStr(1, StrReverse(StringSearch), "/") - 1)
+                For Each wks In ThisWorkbook.Worksheets
+                    If wks.Name = wksName Then
+                        MsgBox "This worksheet has already been imported." & vbNewLine & "Please delete this worksheet before trying to add it again.", vbCritical + vbOKOnly, "Error: Worksheet Exists"
+                        Exit Sub
+                    End If
+                Next wks
+                        
+                Workbooks(wkbName).Worksheets(wksName).Copy After:=ThisWorkbook.Worksheets(Sheets.Count)
+                wksNewName = "TOD-" & ThisWorkbook.Worksheets("Setup").Range("ImportCounter").Value + 1
+                ThisWorkbook.Worksheets(wksName).Name = wksNewName
+                
+                ThisWorkbook.Worksheets("Setup").Activate
+                
+                ThisWorkbook.Worksheets("Setup").Range("FirstReport") = ThisWorkbook.Worksheets(wksNewName).Range("C6").Value
+                ThisWorkbook.Worksheets("Setup").Range("FirstDate") = ThisWorkbook.Worksheets(wksNewName).Range("C7").Value
+                ThisWorkbook.Worksheets("Setup").Range("FirstDataPoint") = ThisWorkbook.Worksheets(wksNewName).Range("C9").Value
+                
+                Call ButtonEnable("cmdCreateReports", "Setup", True)
+                Call ButtonEnable("cmdimportsheets", "Setup", False)
+            Else
+                MsgBox "Please select a worksheet to import", vbExclamation + vbOKOnly, "Error: No Worksheet Selected"
+            End If
+    Else
+        'Do nothing
+    End If
+    
+    Exit Sub
+ErrorHandler:
+    MsgBox "An error occurred." & vbNewLine & "This could be due the workbook containing the requested sheet for import is not open." & vbNewLine & "Please click update sheet list to see only the currently open workbooks.", vbCritical + vbOKOnly, "Error"
+    Exit Sub
+End Sub
+
+Sub CreateReports()
+Dim TotDataHours As Integer, TotDataDays As Integer, i As Integer
+Dim c As Range, DataRNG As Range
+Dim wksReportIndex As Integer
+Dim ReportTitle As String, wksReport As String, wksReportName As String
+
+    If ThisWorkbook.Worksheets("Setup").Buttons("cmdCreateReports").Enabled = True Then
+        wksReport = "TOD-" & ThisWorkbook.Worksheets("Setup").Range("ImportCounter").Value + 1
+        wksReportIndex = ThisWorkbook.Worksheets(wksReport).Index
+        
+        Application.ScreenUpdating = False
+        Worksheets(wksReportIndex).Activate
+        
+        'Loops through every row in first column to find the total hours
+        For i = 1 To ActiveSheet.UsedRange.Rows.Count
+            If IsDate(Cells(i, 1)) = True Then TotDataHours = TotDataHours + 1
+        Next i
+        
+        'Loops through every column to find number of days
+        For i = ColFirstData To ActiveSheet.UsedRange.Columns.Count
+            If IsDate(Cells(RowDate, i)) = True Then
+                TotDataDays = TotDataDays + 1
+            Else
+                Exit For
+            End If
+        Next
+        
+        Sheets.Add After:=Worksheets(wksReportIndex) 'Adds worksheet for tables
+        'Names the new worksheet
+        wksReportName = "Rep-" & ThisWorkbook.Worksheets("Setup").Range("ImportCounter").Value + 1
+        Sheets(wksReportIndex + 1).Name = wksReportName
+        
+        Worksheets(wksReportIndex).Activate
+        'Loops through all columns
+        For i = (ColFirstData - 1) To Worksheets(wksReportIndex).UsedRange.Columns.Count
+            'Looking for report titles by checking if the cell is blank, or metrics
+            If Cells(RowReportTitle, i).Value <> "" And Cells(RowReportTitle, i).Value <> "Metrics" Then
+                ReportTitle = Cells(RowReportTitle, i).Value 'Stores report title
+                Set DataRNG = Range(Cells(RowFirstData, i).Address).Resize(TotDataHours, TotDataDays) 'Creates Data Range
+                Call ReportFiller(DataRNG, TotDataHours, ReportTitle, wksReportIndex) '
+                i = i + TotDataDays 'Adds total number of days to loop, to set ranges faster
+            End If
+        Next
+        
+        ThisWorkbook.Worksheets("Setup").Range("ImportCounter").Value = ThisWorkbook.Worksheets("Setup").Range("ImportCounter").Value + 1
+        
+        Worksheets(wksReportIndex + 1).Activate
+        Application.ScreenUpdating = True
+
+        Call ButtonEnable("cmdCreateReports", "Setup", False)
+        Call ButtonEnable("cmdResetSheetList", "Setup", True)
+    Else
+        'do nothing
+    End If
+End Sub
+
+Sub ReportFiller(DataRNG As Range, DataHours As Integer, ReportTitle As String, wksReportIndex As Integer)
+Dim SumFormula() As Variant, AvgFormula() As Variant, MaxFormula() As Variant
+Dim RowDataRNG As Range, c As Range, ReportStart As Range
+Dim i As Integer, j As Integer, x As Integer
+Dim RangeFormat As String
+
+'Requirement: DataSheet must be the first sheet
+    
+    'Allocates storage arrays, the +1 is for the Totals
+    ReDim SumFormula(1 To DataHours + 1, 1 To 7 + 1)
+    ReDim MaxFormula(1 To DataHours + 1, 1 To 7 + 1)
+    ReDim AvgFormula(1 To DataHours + 1, 1 To 7 + 1)
+    
+    Worksheets(wksReportIndex).Activate
+    
+    For Each RowDataRNG In DataRNG.Rows 'Loops every row in data range
+        i = i + 1
+        For Each c In RowDataRNG.Cells 'Loops every cell in Row
+            For x = 1 To 7 'Loops for every day of the week
+                If Weekday(Cells(7, c.Column)) = x Then
+                    If c.Value = "" Then c.Value = 0 'Blank cells changed to 0
+                    'Starting each formula
+                    If SumFormula(i, x) = "" Then SumFormula(i, x) = "=Sum("
+                    If MaxFormula(i, x) = "" Then MaxFormula(i, x) = "=Max("
+                    If AvgFormula(i, x) = "" Then AvgFormula(i, x) = "=Average("
+                    'Adding each cell reference to every formula
+                    SumFormula(i, x) = SumFormula(i, x) & "'" & Sheets(wksReportIndex).Name & "'!" & c.Address & ","
+                    MaxFormula(i, x) = MaxFormula(i, x) & "'" & Sheets(wksReportIndex).Name & "'!" & c.Address & ","
+                    AvgFormula(i, x) = AvgFormula(i, x) & "'" & Sheets(wksReportIndex).Name & "'!" & c.Address & ","
+                End If
+            Next x
+        Next c
+        
+        For j = 1 To 7 'Loop through each formula (for current loop row) to cleanup
+            'Formula Cleanup: Checking if empty
+            If SumFormula(i, j) = "=(" Then SumFormula(i, j) = "0"
+            If MaxFormula(i, j) = "=(" Then MaxFormula(i, j) = "0"
+            If AvgFormula(i, j) = "=(" Then AvgFormula(i, j) = "0"
+
+            'Formula Cleanup: removes last comma, adds closing brack
+            If Right(MaxFormula(i, j), 1) = "," Then _
+                MaxFormula(i, j) = Left(MaxFormula(i, j), Len(MaxFormula(i, j)) - 1) & ")"
+            If Right(SumFormula(i, j), 1) = "," Then _
+                SumFormula(i, j) = Left(SumFormula(i, j), Len(SumFormula(i, j)) - 1) & ")"
+            If Right(AvgFormula(i, j), 1) = "," Then _
+                AvgFormula(i, j) = Left(AvgFormula(i, j), Len(AvgFormula(i, j)) - 1) & ")"
+         Next j
+    Next RowDataRNG
+
+    Worksheets(wksReportIndex + 1).Activate
+    
+    Set ReportStart = Worksheets(wksReportIndex + 1).Cells(RowReportStart, ColReportStart) 'Starting point for all report
+    
+    'Finds the next available spot to write report
+    Do Until ReportStart.Value = ""
+        Set ReportStart = ReportStart.Offset(0, OffsetReport)
+    Loop
+    
+    For i = 1 To DataHours 'Loop for Row Totals
+         MaxFormula(i, 7 + 1) = "=Max(" & Cells(i + RowReportStart - 1, ReportStart.Column).Address & ":" & Cells(i + RowReportStart - 1, ReportStart.Column + 6).Address & ")"
+         SumFormula(i, 7 + 1) = "=Sum(" & Cells(i + RowReportStart - 1, ReportStart.Column).Address & ":" & Cells(i + RowReportStart - 1, ReportStart.Column + 6).Address & ")"
+         AvgFormula(i, 7 + 1) = "=Average(" & Cells(i + RowReportStart - 1, ReportStart.Column).Address & ":" & Cells(i + RowReportStart - 1, ReportStart.Column + 6).Address & ")"
+    Next i
+    
+    For i = 1 To 7 'Loop for Column Totals
+        MaxFormula(DataHours + 1, i) = "=Max(" & Cells(ReportStart.Row, ReportStart.Column + i - 1).Address & ":" & Cells(ReportStart.Row + DataHours - 1, ReportStart.Column + i - 1).Address & ")"
+        SumFormula(DataHours + 1, i) = "=Sum(" & Cells(ReportStart.Row, ReportStart.Column + i - 1).Address & ":" & Cells(ReportStart.Row + DataHours - 1, ReportStart.Column + i - 1).Address & ")"
+        AvgFormula(DataHours + 1, i) = "=Average(" & Cells(ReportStart.Row, ReportStart.Column + i - 1).Address & ":" & Cells(ReportStart.Row + DataHours - 1, ReportStart.Column + i - 1).Address & ")"
+    Next i
+    
+    'Fills hours column for report
+    For i = 0 To DataHours
+        ReportStart.Offset(i, -1).Value = Sheets(wksReportIndex).Range(Cells(9 + i, 1).Address).Cells.Value
+    Next i
+
+    'Uses keywords to fill report with specified array (formulas)
+    If InStr(1, ReportTitle, "Max") Then
+        ReportStart.Resize(UBound(MaxFormula, 1), UBound(MaxFormula, 2)).Formula = MaxFormula
+        ReportStart.Offset(-1, 0).Resize(1, 8).Value = Array("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Max Total")
+        ReportStart.Offset(DataHours, -1).Value = "Max Total"
+    ElseIf InStr(1, ReportTitle, "%") Or InStr(1, ReportTitle, "ASA") Or InStr(1, ReportTitle, "AHT") Or InStr(1, ReportTitle, "Average") Then
+        ReportStart.Resize(UBound(AvgFormula, 1), UBound(AvgFormula, 2)).Formula = AvgFormula
+        ReportStart.Offset(-1, 0).Resize(1, 8).Value = Array("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Average Total")
+        ReportStart.Offset(DataHours, -1).Value = "Average Total"
+    Else
+        ReportStart.Resize(UBound(SumFormula, 1), UBound(SumFormula, 2)).Formula = SumFormula
+        ReportStart.Offset(-1, 0).Resize(1, 8).Value = Array("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sum Total")
+        ReportStart.Offset(DataHours, -1).Value = "Sum Total"
+    End If
+    
+    ReportStart.Resize(UBound(SumFormula, 1), UBound(SumFormula, 2)).NumberFormat = DataRNG.NumberFormat
+    
+    Call ConditionalFormatter(Worksheets(wksReportIndex + 1).Name, ReportStart.Resize(DataHours, 7).Address)
+    
+    'Adds other information to the report: title, cell reference
+    ReportStart.Offset(-4, -1).Value = DataRNG.Address
+    ReportStart.Offset(-2, -1).Value = ReportTitle
+    
+    Erase SumFormula, MaxFormula, AvgFormula 'Releases all arrays
+    
+    Worksheets(wksReportIndex).Activate
+End Sub
+
+Sub ButtonEnable(ButtonName As String, wksName As String, Enabler As Boolean)
+Dim ButtonHandler As Button
+
+    Set ButtonHandler = Worksheets(wksName).Buttons(ButtonName)
+    
+    ButtonHandler.Enabled = Enabler
+    
+    If Enabler = False Then
+        ButtonHandler.Font.ColorIndex = 15
+    Else
+        ButtonHandler.Font.ColorIndex = 1
+    End If
+End Sub
+
+Sub ConditionalFormatter(wksName As String, rngCF As String)
+Dim CS As ColorScale
+Dim CF As Range
+
+    Set CF = ThisWorkbook.Worksheets(wksName).Range(rngCF)
+    CF.FormatConditions.AddColorScale ColorScaleType:=3
+    
+    CF.FormatConditions(1).ColorScaleCriteria(1).Type = xlConditionValuePercent
+    CF.FormatConditions(1).ColorScaleCriteria(1).Value = 30
+    With CF.FormatConditions(1).ColorScaleCriteria(1).FormatColor
+        .Color = 8109667
+        .TintAndShade = 0
+    End With
+    
+    CF.FormatConditions(1).ColorScaleCriteria(2).Type = xlConditionValuePercent
+    CF.FormatConditions(1).ColorScaleCriteria(2).Value = 50
+    With CF.FormatConditions(1).ColorScaleCriteria(2).FormatColor
+        .Color = 8711167
+        .TintAndShade = 0
+    End With
+    
+    CF.FormatConditions(1).ColorScaleCriteria(3).Type = xlConditionValuePercent
+    CF.FormatConditions(1).ColorScaleCriteria(3).Value = 80
+    With CF.FormatConditions(1).ColorScaleCriteria(3).FormatColor
+        .Color = 7039480
+        .TintAndShade = 0
+    End With
+End Sub
+Sub StartUp()
+Dim wks As Worksheet
+Dim RespReset
+    Application.ScreenUpdating = False
+    
+    RespReset = MsgBox("Are you sure you want to reset this template.", vbCritical + vbYesNo, "Reset Template")
+    
+    If RespReset = vbYes Then
+        ThisWorkbook.Worksheets("Setup").Range("ImportSheet").ClearContents
+        ThisWorkbook.Worksheets("Setup").Range("FirstReport") = ""
+        ThisWorkbook.Worksheets("Setup").Range("FirstDate") = ""
+        ThisWorkbook.Worksheets("Setup").Range("FirstDataPoint") = ""
+        With ThisWorkbook.Worksheets("Setup").Range("ImportSheet").Validation
+            .Delete
+        End With
+        
+        For Each wks In Worksheets
+            If wks.Name <> "Setup" Then
+                Application.DisplayAlerts = False
+                wks.Delete
+                Application.DisplayAlerts = True
+            End If
+        Next wks
+        
+        ThisWorkbook.Worksheets("Setup").Range("ImportCounter").Value = 0
+        
+        Call ButtonEnable("cmdImportSheets", "Setup", False)
+        Call ButtonEnable("cmdCreateReports", "Setup", False)
+        Call ButtonEnable("cmdResetSheetList", "Setup", True)
+    End If
+    
+    Application.ScreenUpdating = True
+End Sub
+
